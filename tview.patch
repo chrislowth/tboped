@@ -1,0 +1,54 @@
+diff --git a/checkbox.go b/checkbox.go
+index 7c4b505..4c6af14 100644
+--- a/checkbox.go
++++ b/checkbox.go
+@@ -171,9 +171,9 @@ func (c *Checkbox) Draw(screen tcell.Screen) {
+ 	if c.focus.HasFocus() {
+ 		fieldStyle = fieldStyle.Background(c.fieldTextColor).Foreground(c.fieldBackgroundColor)
+ 	}
+-	checkedRune := 'X'
++	checkedRune := '✓'
+ 	if !c.checked {
+-		checkedRune = ' '
++		checkedRune = '-'
+ 	}
+ 	screen.SetContent(x, y, checkedRune, nil, fieldStyle)
+ }
+@@ -183,7 +183,7 @@ func (c *Checkbox) InputHandler() func(event *tcell.EventKey, setFocus func(p Pr
+ 	return c.WrapInputHandler(func(event *tcell.EventKey, setFocus func(p Primitive)) {
+ 		// Process key event.
+ 		switch key := event.Key(); key {
+-		case tcell.KeyRune, tcell.KeyEnter: // Check.
++		case tcell.KeyRune: // Check.
+ 			if key == tcell.KeyRune && event.Rune() != ' ' {
+ 				break
+ 			}
+@@ -191,7 +191,7 @@ func (c *Checkbox) InputHandler() func(event *tcell.EventKey, setFocus func(p Pr
+ 			if c.changed != nil {
+ 				c.changed(c.checked)
+ 			}
+-		case tcell.KeyTab, tcell.KeyBacktab, tcell.KeyEscape: // We're done.
++		case tcell.KeyTab, tcell.KeyBacktab, tcell.KeyEscape, tcell.KeyUp, tcell.KeyDown: // We're done.
+ 			if c.done != nil {
+ 				c.done(key)
+ 			}
+diff --git a/form.go b/form.go
+index d022fab..2cc924f 100644
+--- a/form.go
++++ b/form.go
+@@ -561,12 +561,13 @@ func (f *Form) Focus(delegate func(p Primitive)) {
+ 	if f.focusedElement < 0 || f.focusedElement >= len(f.items)+len(f.buttons) {
+ 		f.focusedElement = 0
+ 	}
++
+ 	handler := func(key tcell.Key) {
+ 		switch key {
+-		case tcell.KeyTab, tcell.KeyEnter:
++		case tcell.KeyTab, tcell.KeyEnter, tcell.KeyDown:
+ 			f.focusedElement++
+ 			f.Focus(delegate)
+-		case tcell.KeyBacktab:
++		case tcell.KeyBacktab, tcell.KeyUp:
+ 			f.focusedElement--
+ 			if f.focusedElement < 0 {
+ 				f.focusedElement = len(f.items) + len(f.buttons) - 1

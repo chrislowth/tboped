@@ -1,0 +1,6 @@
+tboped
+gopath/
+.idea/
+*.yaml
+charts_v1alpha1_xl_cr.yaml*
+charts_v1alpha1_xl_crd.yaml*
