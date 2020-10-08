@@ -28,7 +28,7 @@ For these reasons, the tool must be run from a location that can access all thre
 
 ## Installation
 
-1. Download the tar file containing the compiled binary from the GITHUB repository at ... https://turbonomic-emea-cs-bucket.s3.eu-west-2.amazonaws.com/tboped/tboped.tgz
+1. Download the tar file containing the compiled binary from ... https://turbonomic-emea-cs-bucket.s3.eu-west-2.amazonaws.com/tboped/tboped.tgz
 2. Copy the tar file to the XL instance's `/tmp` directory.
 3. Unzip it into a directory that commands can be run from. Eg: $HOME/bin
 
