@@ -2,7 +2,7 @@
 
 TurBonomic OPerator EDitor.
 
-*Status*: Experimental, hopefully useful, unsupported.
+**Status**: Experimental, hopefully useful, unsupported.
 
 This "personal project" tool is an attempt to make editting the Turbonomic Operator chart YAML file easier and safer.
 
@@ -20,9 +20,9 @@ Other features may come in due course.
 
 The tool accesses the following resources...
 
-1: The helm chart itself (usually: charts_v1alpha1_xl_cr.yaml) - the file being editted.
-2: The chart definition file (usually: charts_v1alpha1_xl_crd.yaml) for the purpose of presenting a documentary hint about the role of features as they are selected.
-3: The "values.yaml" file help in the file system of the operator POD. This is collected using "kubectl exec .. cat ..".
+1. The helm chart itself (usually: charts_v1alpha1_xl_cr.yaml) - the file being editted.
+2. The chart definition file (usually: charts_v1alpha1_xl_crd.yaml) for the purpose of presenting a documentary hint about the role of features as they are selected.
+3. The "values.yaml" file help in the file system of the operator POD. This is collected using "kubectl exec .. cat ..".
 
 For these reasons, the tool must be run from a location that can access all three sources. For OVA installed instance, the perfect place is on the instance itself.
 
