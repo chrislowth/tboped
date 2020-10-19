@@ -1,24 +1,52 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"github.com/gdamore/tcell"
-	"github.com/rivo/tview"
-	"io/ioutil"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
+
+	"./t8cop"
+	"github.com/gdamore/tcell"
+	"github.com/rivo/tview"
 )
 
 var ticked = " ✓ "
 var notTicked = " - "
 var noDescription = "(no description available)"
+var comment *tview.TextView
+var exitButton = ""
+
+type StringField struct {
+	Label string
+	Value **string
+}
+
+var StringFields = []StringField{
+	{"Version tag:", &t8cop.GetOperator().Spec.Global.Tag},
+	{"Exernal IP:", &t8cop.GetOperator().Spec.Global.ExternalIP},
+	{"Exernal DB IP:", &t8cop.GetOperator().Spec.Global.ExternalDbIP},
+	//	{"External Timescale DB IP:", &t8cop.GetOperator().Spec.Global.ExternalTimescaleDBIP },
+}
 
 // --------------------------------------------------------------------------------------------------------------------
 
-var exitButton = ""
+func safeGet(str *string) string {
+	if str == nil {
+		return ""
+	}
+	return *str
+}
+
+func safeSet(str **string, value string) {
+	if value == "" {
+		*str = nil
+	} else {
+		*str = &value
+	}
+}
+
+// --------------------------------------------------------------------------------------------------------------------
 
 func confirmSave(app *tview.Application) *tview.Modal {
 	modal := tview.NewModal()
@@ -38,442 +66,411 @@ func confirmSave(app *tview.Application) *tview.Modal {
 
 // --------------------------------------------------------------------------------------------------------------------
 
-type YamlFile struct {
-	Lines         []string
-	LineNumByPath map[string]int
-	EnabledFlags  map[string]int
-	OptionNames   []string
-	Options       map[string]string
-}
+func populateLimitsForm(form *tview.Form) {
+	form.Clear(false)
+	limitNames := t8cop.GetNeededResourceNames()
+	for _, k := range limitNames {
+		v := t8cop.MemLimitMap[k]
 
-func newYamlFile() *YamlFile {
-	return &YamlFile{
-		Lines:         make([]string, 0, 32),
-		LineNumByPath: make(map[string]int),
-		EnabledFlags:  make(map[string]int),
-		OptionNames:   make([]string, 0, 32),
-		Options:       make(map[string]string),
-	}
-}
-
-func loadFile(fileName string, pathPrefix *string) (*YamlFile, error) {
-	rtn := newYamlFile()
-
-	b, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		return nil, err
-	}
-
-	path := make([]string, 0, 4)
-	indents := make([]int, 0, 4)
-
-	if pathPrefix == nil {
-		path = append(path, ".")
-		indents = append(indents, -1, 0)
-	} else {
-		path = append(path, "spec", ".")
-		indents = append(indents, -1, -1, 0)
-
-	}
-
-	rtn.Lines = strings.Split(strings.TrimSpace(string(b)), "\n")
-
-	for lineNum, line := range rtn.Lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "#") || strings.TrimSpace(line) == "" {
-			continue
-		}
-		trimmed := strings.TrimLeft(line, " \t")
-		indent := len(line) - len(trimmed)
-		kv := strings.SplitN(trimmed, ":", 2)
-		if len(kv) != 2 {
-			continue
-		}
-
-		lastIndent := indents[len(indents)-1]
-
-		if indent == lastIndent {
-			path[len(path)-1] = kv[0]
-		} else if indent > lastIndent {
-			indents = append(indents, indent)
-			path = append(path, kv[0])
-		} else {
-			for indents[len(indents)-1] >= indent {
-				indents = indents[0:len(indents)-1]
-				path = path[0:len(path)-1]
+		makeCallback := func(v **string) func(string) {
+			return func(text string) {
+				str := text
+				*v = &str
 			}
-			indents = append(indents, indent)
-			path = append(path, kv[0])
 		}
-		rtn.LineNumByPath[strings.Join(path, "/")] = lineNum
-		if len(path) == 3 && path[0] == "spec" && path[2] == "enabled" {
-			rtn.EnabledFlags[path[1]] = lineNum
+
+		value := ""
+		if *v != nil {
+			value = **v
+		}
+		form.AddInputField(k, value, 10, nil, makeCallback(v))
+	}
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+
+type CheckboxPlus struct {
+	tview.Checkbox
+}
+
+// change the checkbox title colour depending on whether it is ticked or not
+func (cb *CheckboxPlus) Draw(screen tcell.Screen) {
+	if cb.IsChecked() {
+		cb.SetLabelColor(tcell.ColorLightGreen)
+	} else {
+		cb.SetLabelColor(tcell.ColorRed)
+	}
+	cb.Checkbox.Draw(screen)
+}
+
+// update the text in the comment line when the checkbox gets focus to contains
+// its description
+func (cb *CheckboxPlus) Focus(delegate func(tview.Primitive)) {
+	cb.Checkbox.Focus(delegate)
+	mesg := t8cop.EnableFlagDescriptions[cb.GetLabel()]
+	comment.SetText(mesg)
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+
+func populateComponentsForm(form, memLimitsForm *tview.Form) {
+	form.Clear(true)
+
+	componentNames := make([]string, 0, 10)
+
+	for k, v := range t8cop.EnabledMap {
+		if *v != nil {
+			componentNames = append(componentNames, k)
 		}
 	}
 
-	for k, lineNum := range rtn.EnabledFlags {
-		rtn.OptionNames = append(rtn.OptionNames, k)
-		f := strings.Split(rtn.Lines[lineNum], ":")
-		rtn.Options[k] = strings.TrimSpace(f[1])
+	sort.Strings(componentNames)
+	for _, k := range componentNames {
+		v := t8cop.EnabledMap[k]
+		makeCallback := func(v **bool) func(bool) {
+			return func(checked bool) {
+				b := checked
+				*v = &b
+				populateLimitsForm(memLimitsForm)
+			}
+		}
+		cb := CheckboxPlus{*tview.NewCheckbox()}
+		cb.SetLabel(k)
+		cb.SetChecked(**v)
+		cb.SetChangedFunc(makeCallback(v))
+		form.AddFormItem(&cb)
 	}
-
-	sort.Strings(rtn.OptionNames)
-
-	return rtn, nil
-}
-
-
-func (y *YamlFile) GetField(path string) (string, bool) {
-	lineNum, ok := y.LineNumByPath[path]
-	if !ok {
-		return "", false
-	}
-	f := strings.SplitN(y.Lines[lineNum], ":", 2)
-	return strings.TrimSpace(f[1]), true
 }
 
 // --------------------------------------------------------------------------------------------------------------------
 
-func getOperatorPodName() (string, error) {
-	podBytes, err := exec.Command("kubectl", "get", "pods", "-n", "turbonomic").CombinedOutput()
-	if err != nil { return "", err }
-	for _, line := range strings.Split(string(podBytes), "\n") {
-		if strings.HasPrefix(line, "t8c-operator-") {
-			f := strings.Split(line, " ")
-			return f[0], nil
+func selectComponentToAdd(app *tview.Application) *tview.List {
+	list := tview.NewList()
+	list.SetRect(10, 2, 50, 25)
+	list.SetBorder(true)
+	list.ShowSecondaryText(false)
+	list.SetWrapAround(false)
+	list.SetTitle("  Select the component to add  ")
+
+	var names = make([]string, 0, 10)
+
+	for k, v := range t8cop.EnabledMap {
+		if *v == nil {
+			names = append(names, k)
 		}
 	}
-	return "", errors.New("Pod not found")
-}
+	sort.Strings(names)
 
-// --------------------------------------------------------------------------------------------------------------------
-
-func loadOperatorYaml(podName, fileName string) (*YamlFile, error) {
-	yamlBytes, err := exec.Command("kubectl", "exec", podName, "-n", "turbonomic", "--", "cat", fileName).CombinedOutput()
-	if err != nil { return nil, err }
-
-	f, err := ioutil.TempFile("/tmp", "tboped-")
-	if err != nil { return nil, err }
-
-	f.Write(yamlBytes)
-	f.Close()
-
-	spec := "spec"
-	rtn, err := loadFile(f.Name(), &spec)
-	os.Remove(f.Name())
-	return rtn, err
-}
-
-// --------------------------------------------------------------------------------------------------------------------
-
-func listOperatorDirectory(podName, dirName string) ([]string, error) {
-	b, err := exec.Command("kubectl", "exec", podName, "-n", "turbonomic", "--", "ls", dirName ).CombinedOutput()
-	if err != nil { return nil, err }
-
-	return strings.Split(strings.TrimSpace(string(b)), "\n"), nil
-}
-
-// --------------------------------------------------------------------------------------------------------------------
-
-func loadValuesYaml(podName string) (*YamlFile, error) {
-	fileName := "/opt/helm/helm-charts/xl/values.yaml"
-	return loadOperatorYaml(podName, fileName)
-}
-
-// --------------------------------------------------------------------------------------------------------------------
-
-func (crd *YamlFile) getDescription(name string) string {
-	descr, _ := crd.GetField("spec/validation/openAPIV3Schema/properties/spec/properties/"+name+"/properties/enabled/description")
-	if descr == "" {
-		descr = name
+	for _, name := range names {
+		list.AddItem(fmt.Sprintf("  %-48.48s", name), "", 0, func() {})
 	}
-	return descr
+
+	app.SetRoot(list, false).SetFocus(list)
+
+	return list
 }
 
 // --------------------------------------------------------------------------------------------------------------------
 
-func safeToAdd(feature string) bool {
-	return true
+func addComponent(form *tview.Form, name string) {
+	if *t8cop.EnabledMap[name] == nil {
+		b := true
+		*t8cop.EnabledMap[name] = &b
+	}
 }
 
 // --------------------------------------------------------------------------------------------------------------------
 
-func main() {
+func confirmDeleteComponent(app *tview.Application, name string) *tview.Modal {
+	modal := tview.NewModal()
+
+	modal.
+		SetText("Confirm: delete component '" + name + "' ?").
+		AddButtons([]string{"Yes", "No"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			if buttonLabel == "Yes" || buttonLabel == "No" {
+				app.QueueEvent(tcell.NewEventKey(tcell.KeyRune, rune(buttonLabel[0]), tcell.ModNone))
+			}
+		})
+
+	app.SetRoot(modal, true)
+	app.SetFocus(modal)
+
+	return modal
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+
+func edit() {
 	fileName := "/opt/turbonomic/kubernetes/operator/deploy/crds/charts_v1alpha1_xl_cr.yaml"
-	crdName := "/opt/turbonomic/kubernetes/operator/deploy/crds/charts_v1alpha1_xl_crd.yaml"
 
 	if len(os.Args) >= 2 {
 		fileName = os.Args[1]
 	}
-	if len(os.Args) >= 3 {
-		crdName = os.Args[2]
-	}
 
-	fmt.Printf("Loading '%s' .. ", fileName)
-	file, err := loadFile(fileName, nil)
+	err := t8cop.GetOperator().Load(fileName)
 	if err != nil {
-		fmt.Println("")
 		panic(err)
 	}
-	fmt.Println("ok")
 
-	fmt.Printf("Loading '%s' .. ", crdName)
-	crd, err := loadFile(crdName, nil)
-	if err != nil {
-		fmt.Println("")
-		panic(err)
-	}
-	fmt.Println("ok")
+	// t8cop.GetRequirements().Load("t8c-install/operator/helm-charts/xl/requirements.yaml")
 
-	fmt.Print("Finding t8c-operator pod .. ")
-	podName, err := getOperatorPodName()
-	if err != nil { panic(err) }
-	fmt.Printf("%s\n", podName)
-
-	fmt.Print("Load values.yaml from pod .. ")
-	values, err := loadValuesYaml(podName)
-	if err != nil { panic(err) }
-	fmt.Println("ok")
-
-	// addable contains the list of options that can be enabled but are not
-	// listed in the maim file
-	addable := make([]string, 0, 10)
-	for _, o := range values.OptionNames {
-		_, found := file.EnabledFlags[o]
-		if !found && safeToAdd(o) {
-			line := values.Lines[values.LineNumByPath["spec/"+o+"/enabled"]]
-			if strings.HasSuffix(strings.TrimSpace(line), "false") {
-				addable = append(addable, o)
-			}
-		}
-	}
 	app := tview.NewApplication()
 
 	grid := tview.NewGrid()
-	grid.SetRows(3, 0, 1, 1).SetColumns(0)
+	grid.SetRows(3, len(StringFields)+4, 0, 1, 1).SetColumns(0)
 	grid.SetBorders(true).SetBordersColor(tcell.ColorBlue)
 
 	header := tview.NewTextView().
-		SetText("\nTurbonomic Operator - Edit Tool").
-		SetTextColor(tcell.ColorBlack).
-		SetTextAlign(tview.AlignCenter).
-		SetBackgroundColor(tcell.ColorWhite)
+		SetDynamicColors(true).
+		SetText("[yellow]Turbonomic Operator - YAML Editor[-]\n\n(experimental, unsupported)").
+		SetTextAlign(tview.AlignCenter)
 
-	formHelp := "<[white]UP[-]>/<[white]DOWN[-]> Navigate, <[white]SPACE[-]> Select/Deselect, <[white]TAB[-]> Change Window, <[white]ESC[-]> Save and/or Exit"
-	listHelp := "<[white]UP[-]>/<[white]DOWN[-]> Navigate, <[white]RETURN[-]> Select, <[white]TAB[-]> Change Window, <[white]ESC[-]> Save and/or Exit"
+	stringsHelp := strings.Join([]string{
+		"<[white]UP[-]>/<[white]DOWN[-]> Navigate",
+		"<[white]TAB[-]> Change Window",
+		"<[white]ESC[-]> Save/Exit",
+	}, ", ")
+
+	componentsFormHelp := strings.Join([]string{
+		"<[white]UP[-]>/<[white]DOWN[-]> Navigate",
+		"<[white]SPACE[-]> Enable/Disable",
+		"<[white]INS[-]> Add component",
+		"<[white]DEL[-]> Delete",
+		"<[white]TAB[-]> Change Window",
+		"<[white]ESC[-]> Save/Exit",
+	}, ", ")
+
+	memLimitsFormHelp := strings.Join([]string{
+		"<[white]UP[-]>/<[white]DOWN[-]> Navigate",
+		"<[white]TAB[-]> Change Window",
+		"<[white]ESC[-]> Save/Exit",
+	}, ", ")
 
 	footer := tview.NewTextView().
 		SetDynamicColors(true).
-		SetText(formHelp).
+		SetText(componentsFormHelp).
 		SetTextColor(tcell.ColorBlue).
 		SetTextAlign(tview.AlignCenter)
 
-	version, _ := file.GetField("spec/global/tag")
-
-	form := tview.NewForm()
-	form.
+	stringsForm := tview.NewForm()
+	stringsForm.
 		SetItemPadding(0).
 		SetFieldBackgroundColor(tcell.ColorBlack).
 		SetBorder(true).
-		SetTitle("  Edit Configuration  ").
-		SetBorderPadding(1,1,2,2)
-	form.AddInputField("Version:", version, 40, nil, nil)
+		SetTitle("  Configuration Params  ").
+		SetBorderPadding(1, 1, 2, 2)
 
-	list := tview.NewList()
-	list.
-		ShowSecondaryText(false).
-		SetWrapAround(false).
+	for _, sf := range StringFields {
+		stringsForm.AddInputField(sf.Label, safeGet(*sf.Value), 40, nil, func(text string) {
+			safeSet(sf.Value, text)
+		})
+	}
+
+	componentsForm := tview.NewForm()
+	componentsForm.
+		SetItemPadding(0).
+		SetFieldBackgroundColor(tcell.ColorBlack).
 		SetBorder(true).
-		SetTitle("  Select features to add  ").
-		SetBorderPadding(1,1,2,2)
+		SetTitle("  Enabled Components  ").
+		SetBorderPadding(1, 1, 2, 2)
 
-	comment := tview.NewTextView().
+	memLimitsForm := tview.NewForm()
+	memLimitsForm.
+		SetItemPadding(0).
+		SetFieldBackgroundColor(tcell.ColorBlack).
+		SetBorder(true).
+		SetTitle("  POD Memory Resource Limits  ").
+		SetBorderPadding(1, 1, 2, 2)
+
+	comment = tview.NewTextView().
 		SetTextColor(tcell.ColorWhite).
 		SetText("Helpful comment here").
 		SetTextAlign(tview.AlignCenter)
 
-	// create a closure to call on checkbox redraw - to allow us to set the comment
-	newDrawFunc := func(p *tview.Box, name string) func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
-		return func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
-			if form.HasFocus() {
-				item, _ := form.GetFocusedItemIndex()
+	populateComponentsForm(componentsForm, memLimitsForm)
+	populateLimitsForm(memLimitsForm)
 
-				newLabel := noDescription
-				oldLabel := strings.TrimSpace(comment.GetText(false))
-
-				if item >= 1 && item <= len(file.OptionNames) {
-					optionName := strings.TrimPrefix(file.OptionNames[item-1], "+ ")
-					newLabel = crd.getDescription(optionName)
-				} else {
-					newLabel = noDescription
-				}
-
-				if oldLabel != newLabel {
-					comment.SetText(newLabel)
-					app.QueueEvent(tcell.NewEventKey(tcell.KeyCtrlA, 0, tcell.ModNone))
-				}
-			}
-			return p.GetInnerRect()
-		}
+	focussedForm := func(form *tview.Form) {
+		form.SetBackgroundColor(tcell.NewRGBColor(10, 10, 10))
+		form.SetBorderColor(tcell.ColorWhite)
+		form.SetBorderAttributes(tcell.AttrBold)
 	}
 
-	optionValues := make(map[string]bool)
-
-	changedFunc := func(name string) func(bool) {
-		return func(checked bool) {
-			optionValues[strings.TrimPrefix(name, "+ ")] = checked
-		}
-	}
-	// Set up the checkBoxes in the left hand form
-	for i, name := range file.OptionNames {
-		value, ok := file.GetField("spec/"+name+"/enabled")
-		if ok {
-			optionValues[name] = value == "true"
-
-			form.AddCheckbox(name, value == "true", changedFunc(name))
-			cb := form.GetFormItem(i+1).(*tview.Checkbox)
-			cb.SetDrawFunc(newDrawFunc(cb.Box, name))
-		}
+	unfocussedForm := func(form *tview.Form) {
+		form.SetBackgroundColor(tcell.NewRGBColor(10, 10, 10))
+		form.SetBorderColor(tcell.ColorWhite)
+		form.SetBorderAttributes(tcell.AttrDim)
 	}
 
-	focusForm := func() {
-		app.SetFocus(form)
-		footer.SetText(formHelp)
-		form.SetBackgroundColor(tcell.ColorDarkBlue)
-		list.SetBackgroundColor(tcell.ColorBlack)
-		list.SetSelectedBackgroundColor(tcell.ColorBlack)
-		list.SetSelectedTextColor(tcell.ColorWhite)
+	focusStringsForm := func() {
+		app.SetFocus(stringsForm)
+		footer.SetText(stringsHelp)
+		focussedForm(stringsForm)
+		unfocussedForm(componentsForm)
+		unfocussedForm(memLimitsForm)
+		comment.SetText("Edit some basic configuration variables")
 	}
 
-	focusList := func() {
-		app.SetFocus(list)
-		footer.SetText(listHelp)
-		list.SetBackgroundColor(tcell.ColorDarkBlue)
-		list.SetSelectedBackgroundColor(tcell.ColorWhite)
-		list.SetSelectedTextColor(tcell.ColorBlack)
-		form.SetBackgroundColor(tcell.ColorBlack)
+	focusComponentsForm := func() {
+		app.SetFocus(componentsForm)
+		footer.SetText(componentsFormHelp)
+		unfocussedForm(stringsForm)
+		focussedForm(componentsForm)
+		unfocussedForm(memLimitsForm)
 	}
 
-	populateList := func() { }
-
-	addFeature := func(feature string, row int) {
-		form.AddCheckbox("+ "+feature, true, changedFunc(feature))
-		optionValues[feature] = true
-		file.OptionNames = append(file.OptionNames, feature)
-		newAddable := make([]string, 0, 16)
-		for _, a := range addable {
-			if a != feature {
-				newAddable = append(newAddable, a)
-			}
-		}
-		addable = newAddable
-		populateList()
-		list.SetCurrentItem(row)
+	focusMemLimitsForm := func() {
+		app.SetFocus(memLimitsForm)
+		footer.SetText(memLimitsFormHelp)
+		unfocussedForm(stringsForm)
+		unfocussedForm(componentsForm)
+		focussedForm(memLimitsForm)
+		comment.SetText("Edit memory limits for the different PODs")
 	}
 
-	listChangedFunc := func(index int, mainText string) {
-		name := strings.TrimSpace(mainText)
-		descr := crd.getDescription(name)
-		if descr == name { descr = noDescription }
-		comment.SetText(descr)
-	}
-
-	populateList = func() {
-		list.Clear()
-		for i, a := range addable {
-			added := func(feature string,row int) func() {
-				return func() {
-					addFeature(feature, row)
-				}
-			}
-			list.AddItem(fmt.Sprintf("  %-50s  ", a), "", 0, added(a, i))
-		}
-
-		list.SetChangedFunc(func(index int, mainText string, secondaryText string, shortcut rune) {
-			listChangedFunc(index, mainText)
-		})
-	}
-
-	populateList()
-
-	var modal *tview.Modal
+	var modal *tview.Modal = nil
+	var confirmDeleteDialog *tview.Modal = nil
+	var confirmItem = ""
+	var componentSelector *tview.List = nil
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyEscape {
-			if form.HasFocus() || list.HasFocus() {
+		switch event.Key() {
+		case tcell.KeyEscape:
+			switch {
+			case componentSelector != nil && componentSelector.HasFocus():
+				app.SetRoot(grid, true)
+				componentSelector = nil
+				focusComponentsForm()
+				return nil
+			case componentsForm.HasFocus() || memLimitsForm.HasFocus() || stringsForm.HasFocus():
 				modal = confirmSave(app)
 				app.SetRoot(modal, true)
 				app.SetFocus(modal)
-			} else if modal != nil && modal.HasFocus() {
+				return nil
+			case modal != nil && modal.HasFocus():
 				app.SetRoot(grid, true)
-				app.SetFocus(grid)
-				focusForm()
+				modal = nil
+				focusStringsForm()
+				return nil
 			}
 
-			return nil
+		case tcell.KeyTAB:
+			switch {
+			case stringsForm.HasFocus():
+				focusComponentsForm()
+				return nil
+			case componentsForm.HasFocus():
+				focusMemLimitsForm()
+				return nil
+			case memLimitsForm.HasFocus():
+				focusStringsForm()
+				return nil
+			}
 
-		} else if event.Key() == tcell.KeyTAB && form.HasFocus() {
-			focusList()
-			i := list.GetCurrentItem()
-			text, _ := list.GetItemText(i)
-			listChangedFunc(i, text)
-			return nil
+		case tcell.KeyEnter:
+			switch {
+			case componentSelector != nil && componentSelector.HasFocus():
+				n := componentSelector.GetCurrentItem()
+				text, _ := componentSelector.GetItemText(n)
+				addComponent(componentsForm, strings.TrimSpace(text))
+				populateComponentsForm(componentsForm, memLimitsForm)
+				populateLimitsForm(memLimitsForm)
+				app.SetRoot(grid, true)
+				focusComponentsForm()
+				componentSelector = nil
+			}
 
-		} else if event.Key() == tcell.KeyTAB && list.HasFocus() {
-			focusForm()
-			return nil
+		case tcell.KeyInsert:
+			switch {
+			case componentsForm.HasFocus():
+				componentSelector = selectComponentToAdd(app)
+				return nil
+			}
+
+		case tcell.KeyDelete:
+			switch {
+			case componentsForm.HasFocus():
+				n, _ := componentsForm.GetFocusedItemIndex()
+				confirmItem = strings.TrimSpace(componentsForm.GetFormItem(n).(*CheckboxPlus).GetLabel())
+				confirmDeleteDialog = confirmDeleteComponent(app, confirmItem)
+				return nil
+			}
+
+		case tcell.KeyRune:
+			switch {
+			case confirmDeleteDialog != nil && confirmDeleteDialog.HasFocus():
+				switch event.Rune() {
+				case rune('Y'), rune('y'):
+					*t8cop.EnabledMap[confirmItem] = nil
+					app.SetRoot(grid, true)
+					populateComponentsForm(componentsForm, memLimitsForm)
+					populateLimitsForm(memLimitsForm)
+					focusComponentsForm()
+					confirmDeleteDialog = nil
+				case rune('N'), rune('n'):
+					app.SetRoot(grid, true)
+					focusComponentsForm()
+					confirmDeleteDialog = nil
+				}
+			case componentsForm.HasFocus():
+				switch event.Rune() {
+				case 'D', 'd', '-':
+					app.QueueEvent(tcell.NewEventKey(tcell.KeyDelete, 0, tcell.ModNone))
+				case 'I', 'i', '+':
+					app.QueueEvent(tcell.NewEventKey(tcell.KeyInsert, 0, tcell.ModNone))
+				}
+			}
 		}
-
 		return event
 	})
 
 	grid.AddItem(header, 0, 0, 1, 2, 0, 0, false)
-	grid.AddItem(form, 1, 0, 1, 1, 0, 0, true)
-	grid.AddItem(list, 1, 1, 1, 1, 0, 0, false)
-	grid.AddItem(comment, 2, 0, 1, 2, 0, 0, false)
-	grid.AddItem(footer, 3, 0, 1, 2, 0, 0, false)
+	grid.AddItem(stringsForm, 1, 0, 1, 1, 0, 0, true)
+	grid.AddItem(componentsForm, 2, 0, 1, 1, 0, 0, true)
+	grid.AddItem(memLimitsForm, 1, 1, 2, 1, 0, 0, false)
+	grid.AddItem(comment, 3, 0, 1, 2, 0, 0, false)
+	grid.AddItem(footer, 4, 0, 1, 2, 0, 0, false)
 
-	focusForm()
+	focusStringsForm()
 
 	if err := app.SetRoot(grid, true).SetFocus(grid).Run(); err != nil {
 		panic(err)
 	}
 
 	if exitButton == "Yes" {
-		for label, checked := range optionValues {
-			lineNum, ok := file.EnabledFlags[label]
-			if ok {
-				f := strings.Split(file.Lines[lineNum], ":")
-				file.Lines[lineNum] = f[0] + ": " + fmt.Sprintf("%v", checked)
-			} else {
-				file.Lines = append(file.Lines, "")
-				file.Lines = append(file.Lines, "  "+strings.TrimPrefix(label, "+ ")+":")
-				file.Lines = append(file.Lines, fmt.Sprintf("    enabled: %v", checked))
-			}
-		}
-
-		lineNo, ok := file.LineNumByPath["spec/global/tag"]
-		if ok {
-			f := strings.SplitN(file.Lines[lineNo], ":", 2)
-			version := strings.TrimSpace(form.GetFormItem(0).(*tview.InputField).GetText())
-			file.Lines[lineNo] = f[0] + ": " + version
-		}
-
-		content := strings.TrimSpace(strings.Join(file.Lines, "\n")) + "\n"
-		err = ioutil.WriteFile(fileName+".new", []byte(content), 0666)
+		err = t8cop.GetOperator().Save(fileName)
 		if err != nil {
 			panic(err)
 		}
+	}
+}
 
-		os.Remove(fileName + ".bak9")
-		os.Rename(fileName+".bak8", fileName+".bak9")
-		os.Rename(fileName+".bak7", fileName+".bak8")
-		os.Rename(fileName+".bak6", fileName+".bak7")
-		os.Rename(fileName+".bak5", fileName+".bak6")
-		os.Rename(fileName+".bak4", fileName+".bak5")
-		os.Rename(fileName+".bak3", fileName+".bak4")
-		os.Rename(fileName+".bak2", fileName+".bak3")
-		os.Rename(fileName+".bak", fileName+".bak2")
-		os.Rename(fileName, fileName+".bak")
-		os.Rename(fileName+".new", fileName)
+func enableEmbeddedReports() {
+	fileName := "/opt/turbonomic/kubernetes/operator/deploy/crds/charts_v1alpha1_xl_cr.yaml"
+
+	if len(os.Args) >= 3 {
+		fileName = os.Args[2]
+	}
+
+	op := t8cop.GetOperator()
+	err := op.Load(fileName)
+	if err != nil {
+		panic(err)
+	}
+
+	op.EnableEmbeddedReporting("grafanaAdmnPassword", "grafanaPassword")
+
+	err = op.Save(fileName)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "--enable-embedded-reporting" {
+		enableEmbeddedReports()
+	} else {
+		edit()
 	}
 }

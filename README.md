@@ -40,7 +40,7 @@ Just run "tboped" and it will pick up the files from the default locations..
 - /opt/turbonomic/kubernetes/operator/deploy/crds/charts_v1alpha1_xl_crd.yaml
 - "kubectl" on the linux path.
 
-If you wish to edit a different `_cr.yaml` file or use descriptions from a different `_crd.yaml` file then you can specific alternative paths on the command line. The first argument is the name of the `_cr.yaml` file to be editted and the second (if specified) is the alternative `_crd.yaml`.
+If you wish to edit a different `_cr.yaml` file or use descriptions from a different `_crd.yaml` file then you can specify alternative paths on the command line. The first argument is the name of the `_cr.yaml` file to be editted and the second (if specified) is the alternative `_crd.yaml`.
 
 In most cases you can just run it without arguments.
 
