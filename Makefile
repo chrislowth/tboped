@@ -3,9 +3,8 @@ GOPATH = $(PWD)/gopath
 WD = $(PWD)
 GO = go
 
-tboped: tboped.go Makefile $(GOPATH)/.ready t8cop/* t8cop/operator_type.go
+tboped: tboped.go Makefile $(GOPATH)/.ready t8cop/* t8cop/operator_type.go ui/*.go
 	$(GO) build
-	ln -s $@ enable_embedded_reports
 
 clean:
 	rm -fv tboped t8cop/operator_type.go t8cop/structs.go
@@ -36,7 +35,7 @@ t8cop/operator_type.go: Makefile tools/mkopgo.go t8cop/utils.go \
 		t8c-install/operator/helm-charts/xl/requirements.yaml
 	rm -f $@ tools/structs.go t8cop/structs.go
 	cd tools && go run -tags mkopgo mkopgo.go ../t8c-install/operator > /tmp/operator_type.go
-	mv tools/structs.go t8cop
+	uniq tools/structs.go > t8cop/structs.go
 	mv /tmp/operator_type.go $@
 
 dlv:

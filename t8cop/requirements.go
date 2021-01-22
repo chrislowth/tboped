@@ -1,15 +1,16 @@
 package t8cop
 
 import (
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Dependency struct {
-	Name string
+	Name       string
 	Repository string
-	Version string
-	Condition string
+	Version    string
+	Condition  string
 }
 
 type Requirements struct {
@@ -18,12 +19,15 @@ type Requirements struct {
 
 // Load from t8c-install/operator/helm-charts/xl/requirements.yaml
 func (r *Requirements) Load(fileName string) error {
-	b, err := ioutil.ReadFile(fileName )
-	if err != nil { return err }
+	b, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		return err
+	}
 
 	err = yaml.Unmarshal(b, r)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
-

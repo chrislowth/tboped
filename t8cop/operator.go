@@ -4,10 +4,11 @@ package t8cop
 
 import (
 	"fmt"
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 func GetOperator() *Operator {
@@ -17,17 +18,23 @@ func GetOperator() *Operator {
 // Load - typically from "t8c-install/operator/deploy/crds/charts_v1alpha1_xl_cr.yaml"
 func (op *Operator) Load(fileName string) error {
 	b, err := ioutil.ReadFile(fileName)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	err = yaml.Unmarshal(b, op)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func (op *Operator) Dump() error {
 	b, err := yaml.Marshal(op)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	fmt.Print(string(b))
 
@@ -36,10 +43,14 @@ func (op *Operator) Dump() error {
 
 func (op *Operator) Save(fileName string) error {
 	b, err := yaml.Marshal(op)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	err = RollBackup(fileName)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	return ioutil.WriteFile(fileName, b, 0666)
 }
@@ -117,12 +128,11 @@ func GetNeededResourceNames() []string {
 		}
 		isNeeded := true
 		for _, condVar := range strings.Split(cond, ",") {
-			if !strings.HasSuffix(condVar, ".enabled") {
-				panic("CondVar is '"+condVar+"'")
-			}
-			condVar = strings.TrimSuffix(condVar, ".enabled")
-			if *EnabledMap[condVar] == nil || **EnabledMap[condVar] != true {
-				isNeeded = false
+			if strings.HasSuffix(condVar, ".enabled") {
+				condVar = strings.TrimSuffix(condVar, ".enabled")
+				if *EnabledMap[condVar] == nil || **EnabledMap[condVar] != true {
+					isNeeded = false
+				}
 			}
 		}
 		if isNeeded {

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 var crd Crd
@@ -54,6 +54,8 @@ func yamlField(y interface{}, keys ...string) interface{} {
 	for _, key := range keys {
 		switch r := rtn.(type) {
 		case map[interface{}]interface{}:
+			rtn = r[key]
+		case map[string]interface{}:
 			rtn = r[key]
 		default:
 			fmt.Fprintf(os.Stderr, "Cant find branch %s\n", strings.Join(keys, "."))
@@ -164,6 +166,19 @@ func patchInto(crdProp CrdProperty, propName string, yamlProp interface{}) {
 		crdProp.Properties = make(map[string]CrdProperty)
 	}
 	switch y := yamlProp.(type) {
+	case map[string]interface{}:
+		if crdProp.Properties[propName].Type == "" {
+			crdProp.Properties[propName] = CrdProperty{
+				// Description: "MISSING!",
+				Type:       "object",
+				Properties: make(map[string]CrdProperty),
+			}
+		}
+		for k, v := range y {
+			patchInto(crdProp.Properties[propName], k, v)
+			// patchInto(crdProp, k.(string), v)
+		}
+
 	case map[interface{}]interface{}:
 		if crdProp.Properties[propName].Type == "" {
 			crdProp.Properties[propName] = CrdProperty{
@@ -435,7 +450,7 @@ func RollBackup(fileName string) error {
 		err = rename(fileName+".bak", fileName+".bak2")
 	}
 	if err == nil {
-		err = rename(fileName, fileName + ".bak")
+		err = rename(fileName, fileName+".bak")
 	}
 
 	return err

@@ -2,6 +2,8 @@
 
 TurBonomic OPerator EDitor.
 
+***DO NOT USE --- THIS VERSION IS INCOMPLETE AND NOW REDUNDANT. IT WILL SHORTLY BE REPLACED BY A NEW FEATURE IN "tbutil"***
+
 **Status**: Experimental, hopefully useful, unsupported.
 
 This "personal project" tool is an attempt to make editting the Turbonomic Operator chart YAML file easier and safer.

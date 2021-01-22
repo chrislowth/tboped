@@ -28,34 +28,44 @@ func isEmptyObject(objDef *t8cop.CrdProperty) bool {
 }
 
 func generateGoStruct(objDefn *t8cop.CrdProperty, indent string) {
+//	usedGoNames := make(map[string]bool)
 	propNames := make([]string, 0, 16)
 	for name, _ := range objDefn.Properties {
 		propNames = append(propNames, name)
 	}
 	sort.Strings(propNames)
 	for _, name := range propNames {
+		if name == "PullPolicy" { // wrong leading cap
+			continue;
+		}
+		gn := goName(name)
+//		if usedGoNames[gn] {
+//			continue;
+//		}
+//		usedGoNames[gn] = true
+
 		def := objDefn.Properties[name]
 		switch def.Type {
 		case "string":
-			fmt.Printf("%s%s *string `yaml:\"%s,omitempty\"`\n", indent+"\t", goName(name), name)
+			fmt.Printf("%s%s *string `yaml:\"%s,omitempty\"`\n", indent+"\t", gn, name)
 		case "array":
-			fmt.Printf("%s%s []string `yaml:\"%s,omitempty\"`\n", indent+"\t", goName(name), name)
+			fmt.Printf("%s%s []string `yaml:\"%s,omitempty\"`\n", indent+"\t", gn, name)
 		case "boolean":
-			fmt.Printf("%s%s *bool `yaml:\"%s,omitempty\"`\n", indent+"\t", goName(name), name)
+			fmt.Printf("%s%s *bool `yaml:\"%s,omitempty\"`\n", indent+"\t", gn, name)
 		case "integer":
-			fmt.Printf("%s%s *int64 `yaml:\"%s,omitempty\"`\n", indent+"\t", goName(name), name)
+			fmt.Printf("%s%s *int64 `yaml:\"%s,omitempty\"`\n", indent+"\t", gn, name)
 		case "object":
 			if isEmptyObject(&def) || name == "annotations" || name == "podAnnotations" {
-				fmt.Println(indent + "\t" + goName(name) + " GenericMap `yaml:\"" + name + ",omitempty\"`")
+				fmt.Println(indent + "\t" + gn + " GenericMap `yaml:\"" + name + ",omitempty\"`")
 			} else if len(propNames) > 80 {
-				fmt.Fprintln(sf, "\ntype "+goName(name)+"_t struct {")
+				fmt.Fprintln(sf, "\ntype "+gn+"_t struct {")
 				os.Stdout = sf
 				generateGoStruct(&def, "")
 				os.Stdout = stdout
 				fmt.Fprintf(sf, "}\n")
-				fmt.Println(indent + "\t" + goName(name) + " " + goName(name) + "_t  `yaml:\"" + name + ",omitempty\"`")
+				fmt.Println(indent + "\t" + gn + " " + gn + "_t  `yaml:\"" + name + ",omitempty\"`")
 			} else {
-				fmt.Println(indent + "\t" + goName(name) + " struct {")
+				fmt.Println(indent + "\t" + gn + " struct {")
 				generateGoStruct(&def, indent+"\t")
 				fmt.Printf(indent+"\t} `yaml:\"%s,omitempty\"`\n", name)
 			}

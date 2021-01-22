@@ -2,37 +2,38 @@ package t8cop
 
 import (
 	"fmt"
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
+
+	"gopkg.in/yaml.v3"
 )
 
 type CrdProperty struct {
-	Description string 					`yaml:"description,omitempty"`
-	Type string 						`yaml:"type,omitempty"`
-	Properties map[string]CrdProperty	`yaml:"properties,omitempty"`
+	Description string                 `yaml:"description,omitempty"`
+	Type        string                 `yaml:"type,omitempty"`
+	Properties  map[string]CrdProperty `yaml:"properties,omitempty"`
 }
 
 type Crd struct {
 	ApiVersion string
-	Kind string
-	Metadata struct {
-		Name string
+	Kind       string
+	Metadata   struct {
+		Name        string
 		Annotations map[string]string
 	}
 	Spec struct {
 		Group string
 		Names struct {
-			Kind string
-			ListKind string 			`yaml:"listKind"`
-			Plural string
+			Kind     string
+			ListKind string `yaml:"listKind"`
+			Plural   string
 			Singular string
 		}
 		Scope string
 		// Subresources
-		Version string
+		Version  string
 		Versions []struct {
-			Name string
-			Served bool
+			Name    string
+			Served  bool
 			Storage bool
 		}
 		Validation struct {
@@ -47,7 +48,7 @@ func (c *CrdProperty) Clone() *CrdProperty {
 		Type:        c.Type,
 		Properties:  nil,
 	}
-	if (c.Properties != nil) {
+	if c.Properties != nil {
 		rtn.Properties = make(map[string]CrdProperty)
 		for k, v := range c.Properties {
 			rtn.Properties[k] = *v.Clone()
@@ -59,17 +60,23 @@ func (c *CrdProperty) Clone() *CrdProperty {
 // Load - typically from "t8c-install/operator/deploy/crds/charts_v1alpha1_xl_crd.yaml"
 func (crd *Crd) Load(fileName string) error {
 	b, err := ioutil.ReadFile(fileName)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	err = yaml.Unmarshal(b, crd)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func (crd *Crd) Dump() error {
 	b, err := yaml.Marshal(crd)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	fmt.Print(string(b))
 
